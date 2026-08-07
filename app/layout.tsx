@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Ocean Image Review",
-  description: "Collaborative review of NASA astronaut ocean imagery",
+  title: "Astronaut Photography Identification Review Portal",
+  description: "Collaborative identification and review of NASA astronaut photography",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

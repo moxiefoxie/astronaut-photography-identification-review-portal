@@ -76,7 +76,7 @@ export function AuthGate({ children }: { children: (user: User | null) => React.
   return (
     <main className="auth-shell">
       <section className="auth-card">
-        <div className="eyebrow">NASA OCEAN REVIEW</div>
+        <div className="eyebrow">ASTRONAUT PHOTOGRAPHY IDENTIFICATION REVIEW PORTAL</div>
         <h1>Review Earth from orbit.</h1>
         <p>Sign in with your team email. We’ll send a secure magic link—no password required.</p>
         {sent ? (

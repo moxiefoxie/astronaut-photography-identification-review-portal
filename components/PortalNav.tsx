@@ -49,7 +49,7 @@ export function PortalNav({ currentRunId, userEmail }: { currentRunId?: string; 
     <nav className="portal-nav" aria-label="Review portal">
       <Link className="portal-brand" href="/">
         <span>NASA</span>
-        <strong>Ocean Review</strong>
+        <strong>Astronaut Photography Identification Review Portal</strong>
       </Link>
       <div className="portal-nav-actions">
         <label className="run-menu">

@@ -39,7 +39,7 @@ function DashboardContent({ userEmail }: { userEmail: string | null }) {
     <main className="dashboard-shell">
       <PortalNav userEmail={userEmail} />
       <header className="topbar">
-        <div><div className="eyebrow">NASA OCEAN REVIEW</div><h1>Review runs</h1></div>
+        <div><div className="eyebrow">ASTRONAUT PHOTOGRAPHY IDENTIFICATION REVIEW PORTAL</div><h1>Review runs</h1></div>
         <div className="topbar-actions">
           {!getSupabaseBrowserClient() && <span className="demo-pill">Local demo</span>}
         </div>

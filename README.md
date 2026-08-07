@@ -1,4 +1,4 @@
-# NASA Ocean Review
+# Astronaut Photography Identification Review Portal
 
 A collaborative review workspace for NASA astronaut photography. It is designed for Vercel and Supabase and deliberately leaves the source imagery on NASA's servers, so deploying the reviewer does not mean uploading the multi-gigabyte image archive.
 
