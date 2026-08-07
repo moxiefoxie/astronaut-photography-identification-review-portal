@@ -184,7 +184,7 @@ function CatalogContent({ user }: { user: User | null }) {
       <section className="catalog-controls" aria-label="AI catalog filters">
         <label><span>Run</span><select value={runId} onChange={(event) => setRunId(event.target.value)}>{runs.map((run) => <option key={run.id} value={run.id}>{run.name}</option>)}</select></label>
         <label><span>AI tag</span><select value={tagId} onChange={(event) => setTagId(event.target.value)}><option value="">All automated tags</option>{tags.map((tag) => <option key={tag.id} value={tag.id}>{tag.label}</option>)}</select></label>
-        <label><span>Minimum model score</span><select value={minimumScore} onChange={(event) => setMinimumScore(Number(event.target.value))}><option value="0">Any score</option><option value="0.4">40%+</option><option value="0.5">50%+</option><option value="0.6">60%+</option><option value="0.7">70%+</option><option value="0.8">80%+</option><option value="0.9">90%+</option></select></label>
+        <label><span>Minimum ranking score</span><select value={minimumScore} onChange={(event) => setMinimumScore(Number(event.target.value))}><option value="0">Any score</option><option value="0.4">40%+</option><option value="0.5">50%+</option><option value="0.6">60%+</option><option value="0.7">70%+</option><option value="0.8">80%+</option><option value="0.9">90%+</option></select></label>
         <label className="catalog-search"><span>Image</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search image ID" /></label>
         <button onClick={() => setRefreshKey((value) => value + 1)}>Refresh</button>
       </section>
@@ -196,7 +196,7 @@ function CatalogContent({ user }: { user: User | null }) {
         <section className="catalog-grid">
           {items.map((item) => <CatalogCard key={item.runImageId} item={item} />)}
         </section>
-      ) : <div className="catalog-message"><h2>No predictions match these filters</h2><p>Lower the model-score threshold or choose a different run or category.</p></div>}
+      ) : <div className="catalog-message"><h2>No predictions match these filters</h2><p>Lower the ranking-score threshold or choose a different run or category.</p></div>}
       {total > PAGE_SIZE && (
         <nav className="catalog-pagination" aria-label="AI catalog pages">
           <button disabled={page === 0 || loading} onClick={() => setPage((value) => Math.max(0, value - 1))}>← Previous</button>
@@ -218,7 +218,7 @@ function CatalogCard({ item }: { item: CatalogImage }) {
         <div className="prediction-list">
           {item.predictions.map((prediction) => (
             <section className="prediction" key={`${prediction.tag.id}-${prediction.source}`}>
-              <div className="prediction-heading"><span className="tag-chip static" style={{ "--tag-color": prediction.tag.color } as React.CSSProperties}>{prediction.tag.label}</span><strong>{prediction.tag.slug === "no_confident_match" ? "Unclassified" : `${Math.round(prediction.score * 100)}% model score`}</strong></div>
+              <div className="prediction-heading"><span className="tag-chip static" style={{ "--tag-color": prediction.tag.color } as React.CSSProperties}>{prediction.tag.label}</span><strong>{prediction.tag.slug === "no_confident_match" ? "Unclassified" : `${Math.round(prediction.score * 100)}% ranking score`}</strong></div>
               {prediction.tag.slug !== "no_confident_match" && <div className="confidence-track"><i style={{ width: `${Math.round(prediction.score * 100)}%` }} /></div>}
               <p>{predictionReason(prediction)}</p>
               <div className="prediction-method">
@@ -323,7 +323,7 @@ function predictionReason(prediction: Prediction) {
       .filter(([, slug]) => slug !== prediction.tag.slug)
       .slice(0, 2)
       .map(([, slug, score]) => `${slug.replaceAll("_", " ")} (${Math.round(Number(score) * 100)}%)`);
-    return `The visual model found a ${strength} match to reviewed ${prediction.tag.label.toLowerCase()} examples (${Math.round(prediction.score * 100)}% model score).${otherMatches.length ? ` It also matched ${otherMatches.join(" and ")}.` : ""}`;
+    return `The visual model found a ${strength} match to reviewed ${prediction.tag.label.toLowerCase()} examples (${Math.round(prediction.score * 100)}% relative ranking score, not a calibrated probability).${otherMatches.length ? ` It also matched ${otherMatches.join(" and ")}.` : ""}`;
   }
   if (typeof summary === "string" && summary.trim()) return summary.trim();
   const firstText = Object.values(evidence).find((value) => typeof value === "string" && value.trim()) as string | undefined;
