@@ -17,12 +17,44 @@ export function AuthGate({ children }: { children: (user: User | null) => React.
       setLoading(false);
       return;
     }
-    client.auth.getUser().then(({ data }) => {
-      setUser(data.user);
+    let active = true;
+    const { data: listener } = client.auth.onAuthStateChange((_event, session) => {
+      if (!active) return;
+      setUser(session?.user ?? null);
       setLoading(false);
     });
-    const { data } = client.auth.onAuthStateChange((_event, session) => setUser(session?.user ?? null));
-    return () => data.subscription.unsubscribe();
+
+    async function initializeSession() {
+      const fragment = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+      const accessToken = fragment.get("access_token");
+      const refreshToken = fragment.get("refresh_token");
+      const initialSession = await client!.auth.getSession();
+      let session = initialSession.data.session;
+      let sessionError: Error | null = initialSession.error;
+
+      if (!session && accessToken && refreshToken) {
+        const explicitSession = await client!.auth.setSession({
+          access_token: accessToken,
+          refresh_token: refreshToken,
+        });
+        session = explicitSession.data.session;
+        sessionError = explicitSession.error;
+      }
+
+      if (!active) return;
+      if (sessionError) setError(sessionError.message);
+      setUser(session?.user ?? null);
+      setLoading(false);
+      if (session && window.location.hash) {
+        window.history.replaceState(null, document.title, `${window.location.pathname}${window.location.search}`);
+      }
+    }
+
+    void initializeSession();
+    return () => {
+      active = false;
+      listener.subscription.unsubscribe();
+    };
   }, []);
 
   if (loading) return <main className="centered"><div className="spinner" />Loading review workspace…</main>;
@@ -35,7 +67,7 @@ export function AuthGate({ children }: { children: (user: User | null) => React.
     const client = getSupabaseBrowserClient()!;
     const { error: authError } = await client.auth.signInWithOtp({
       email,
-      options: { emailRedirectTo: window.location.href },
+      options: { emailRedirectTo: window.location.origin },
     });
     if (authError) setError(authError.message);
     else setSent(true);

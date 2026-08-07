@@ -37,10 +37,10 @@ Realtime is enabled for runs, candidates, predictions, and reviews by the schema
 ## 2. Configure locally
 
 ```bash
-cp .env.example .env.local
+cp environment.template .env.local
 ```
 
-Fill in all four values. Generate the ingest secret with a password manager or a command such as `openssl rand -hex 32`.
+Fill in all four values in the ignored `.env.local` file. Generate the ingest secret with a password manager or a command such as `openssl rand -hex 32`. Never place real values in `environment.template`.
 
 ```bash
 npm install
