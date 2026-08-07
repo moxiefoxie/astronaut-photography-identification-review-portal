@@ -40,7 +40,12 @@ export function SwipeReview({ image, position, total, tags, selectedTags, saving
       <article
         className="swipe-card"
         style={{ transform: `translateX(${dragX}px) rotate(${dragX / 30}deg)`, opacity: Math.max(0.55, 1 - Math.abs(dragX) / 500) }}
-        onPointerDown={(event) => { start.current = { x: event.clientX, y: event.clientY }; (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId); }}
+        onPointerDown={(event) => {
+          const target = event.target as HTMLElement;
+          if (target.closest("button, input, textarea, select, option, form, a, label, [role='button']")) return;
+          start.current = { x: event.clientX, y: event.clientY };
+          event.currentTarget.setPointerCapture(event.pointerId);
+        }}
         onPointerMove={(event) => { if (start.current) setDragX(event.clientX - start.current.x); }}
         onPointerUp={(event) => {
           if (!start.current) return;
@@ -49,6 +54,7 @@ export function SwipeReview({ image, position, total, tags, selectedTags, saving
           if (Math.abs(dx) > 80) decide(dx > 0 ? "accept" : "reject");
           else setDragX(0);
         }}
+        onPointerCancel={() => { start.current = null; setDragX(0); }}
       >
         {dragX < -35 && <div className="swipe-stamp reject">REJECT</div>}
         {dragX > 35 && <div className="swipe-stamp accept">ACCEPT</div>}
