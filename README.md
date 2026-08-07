@@ -16,6 +16,7 @@ A collaborative review workspace for NASA astronaut photography. It is designed 
 - Live run progress and new candidates through Supabase Realtime
 - 150-item pagination for large datasets
 - A protected ingest API and a retrying incremental CSV publisher
+- Transparent metadata gates that record exactly which coordinates, solar angles, or geometry values affected a prediction
 
 ## Architecture
 

@@ -221,6 +221,13 @@ function CatalogCard({ item }: { item: CatalogImage }) {
               <div className="prediction-heading"><span className="tag-chip static" style={{ "--tag-color": prediction.tag.color } as React.CSSProperties}>{prediction.tag.label}</span><strong>{prediction.tag.slug === "no_confident_match" ? "Unclassified" : `${Math.round(prediction.score * 100)}% model score`}</strong></div>
               {prediction.tag.slug !== "no_confident_match" && <div className="confidence-track"><i style={{ width: `${Math.round(prediction.score * 100)}%` }} /></div>}
               <p>{predictionReason(prediction)}</p>
+              <div className="prediction-method">
+                <strong>How this was identified</strong>
+                <span>{predictionMethod(prediction)}</span>
+                {predictionMetadata(prediction).length ? (
+                  <dl>{predictionMetadata(prediction).map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
+                ) : <span><b>Metadata used:</b> none. Coordinates and solar/camera angles did not affect this score.</span>}
+              </div>
               <small>{prediction.source}{prediction.model_version ? ` · ${prediction.model_version}` : ""}</small>
             </section>
           ))}
@@ -321,6 +328,39 @@ function predictionReason(prediction: Prediction) {
   if (typeof summary === "string" && summary.trim()) return summary.trim();
   const firstText = Object.values(evidence).find((value) => typeof value === "string" && value.trim()) as string | undefined;
   return firstText?.trim() || "No explanatory evidence was supplied by this model run.";
+}
+
+function predictionMethod(prediction: Prediction) {
+  const method = prediction.evidence?.method;
+  if (typeof method === "string" && method.trim()) return method.trim();
+  if (prediction.source === "clip_reviewed_prototype") {
+    return "Visual similarity: image pixels were compared with reviewed examples and the category description. This is not object detection or a scene description.";
+  }
+  if (/geometry|specular|sunglint/i.test(prediction.source)) {
+    return "Metadata geometry: the Sun direction and camera-to-ground viewing direction were compared for specular-reflection alignment.";
+  }
+  return `Automated prediction supplied by ${prediction.source}.`;
+}
+
+function predictionMetadata(prediction: Prediction): Array<[string, string]> {
+  const raw = prediction.evidence?.metadata_used;
+  if (!raw) return [];
+  if (Array.isArray(raw)) {
+    return raw.flatMap((entry): Array<[string, string]> => {
+      if (typeof entry === "string") return [["Input", entry]];
+      if (!entry || typeof entry !== "object") return [];
+      const record = entry as Record<string, unknown>;
+      return [[String(record.label ?? record.field ?? "Input"), String(record.value ?? "available")]];
+    });
+  }
+  if (typeof raw === "object") {
+    return Object.entries(raw as Record<string, unknown>).flatMap(([key, value]) => value == null ? [] : [[humanizeKey(key), String(value)] as [string, string]]);
+  }
+  return [["Input", String(raw)]];
+}
+
+function humanizeKey(value: string) {
+  return value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 function exportRecord(item: CatalogImage, run: Run | null) {

@@ -88,6 +88,15 @@ def category_reason(category: str, row: dict[str, str]) -> str:
     return "No explanatory evidence was supplied by this classifier run."
 
 
+def json_value(value: str | None) -> Any:
+    if not value:
+        return None
+    try:
+        return json.loads(value)
+    except json.JSONDecodeError:
+        return value
+
+
 def row_to_image(row: dict[str, str]) -> dict[str, Any]:
     image_id = row["image_id"].strip()
     parts = image_id.split("-", 2)
@@ -95,9 +104,9 @@ def row_to_image(row: dict[str, str]) -> dict[str, Any]:
     roll = row.get("roll") or (parts[1] if len(parts) > 1 else None)
     frame = row.get("frame") or (parts[2] if len(parts) > 2 else None)
     categories = [normalized_slug(value) for value in row.get("categories", "").split(";") if normalized_slug(value)]
-    source = row.get("model_source") or row.get("source") or row.get("sources") or "automated_visual_classifier"
-    if source.isdigit():
-        source = "automated_visual_classifier"
+    default_source = row.get("model_source") or row.get("source") or row.get("sources") or "automated_visual_classifier"
+    if default_source.isdigit():
+        default_source = "automated_visual_classifier"
     known = {
         "image_id", "image_url", "thumbnail_url", "score", "categories", "date",
         "latitude", "longitude", "mission", "roll", "frame",
@@ -126,11 +135,13 @@ def row_to_image(row: dict[str, str]) -> dict[str, Any]:
             {
                 "tag": category,
                 "score": scores[category],
-                "source": source,
-                "model_version": row.get("model_version") or None,
+                "source": row.get(f"{category}_source") or default_source,
+                "model_version": row.get(f"{category}_model_version") or row.get("model_version") or None,
                 "evidence": {
                     "reason": category_reason(category, row),
                     "summary": row.get("evidence", ""),
+                    "method": row.get(f"{category}_method") or None,
+                    "metadata_used": json_value(row.get(f"{category}_metadata_used")),
                 },
             }
             for category in categories

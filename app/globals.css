@@ -201,6 +201,13 @@ h1, h2, h3, p { margin-top: 0; }
 .confidence-track { background: rgba(255, 255, 255, 0.06); border-radius: 99px; height: 4px; margin: 0.55rem 0; overflow: hidden; }
 .confidence-track i { background: linear-gradient(90deg, #38bdf8, #4f46e5); display: block; height: 100%; }
 .prediction p { color: #b7c7d8; font-size: 0.8rem; margin: 0 0 0.45rem; }
+.prediction-method { background: #081522; border: 1px solid #26384d; border-radius: 10px; color: #a9bad0; display: grid; font-size: 0.75rem; gap: 0.3rem; line-height: 1.4; margin-top: 0.65rem; padding: 0.7rem; }
+.prediction-method > strong { color: #dce9f8; }
+.prediction-method b { color: #c8d8ea; }
+.prediction-method dl { display: grid; gap: 0.25rem; margin: 0.2rem 0 0; }
+.prediction-method dl div { display: grid; gap: 0.6rem; grid-template-columns: minmax(110px, 0.8fr) 1.2fr; }
+.prediction-method dt { color: #8196b1; }
+.prediction-method dd { color: #d2def0; margin: 0; overflow-wrap: anywhere; }
 .prediction small { color: var(--muted); }
 .catalog-message { align-items: center; background: var(--panel); border: 1px solid var(--line); border-radius: 20px; color: var(--muted); display: flex; flex-direction: column; gap: 0.75rem; justify-content: center; min-height: 300px; padding: 2rem; text-align: center; }
 .catalog-message h2, .catalog-message p { margin-bottom: 0; }
