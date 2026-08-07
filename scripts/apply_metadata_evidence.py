@@ -42,6 +42,14 @@ def main() -> int:
     parser.add_argument("input_csv", type=Path)
     parser.add_argument("output_csv", type=Path)
     parser.add_argument("--sea-ice-min-latitude", type=float, default=45.0)
+    parser.add_argument(
+        "--reject-sea-ice",
+        action="store_true",
+        help=(
+            "Remove sea-ice candidates after batch-level review finds the batch unreliable. "
+            "This is preferable to presenting relative rank as calibrated confidence."
+        ),
+    )
     parser.add_argument("--night-max-sun-elevation", type=float, default=-6.0)
     parser.add_argument("--add-sunglint", action="store_true")
     parser.add_argument("--sunglint-max-mismatch", type=float, default=10.0)
@@ -85,10 +93,21 @@ def main() -> int:
                 if sun_elevation > args.night_max_sun_elevation:
                     reject_reason = f"solar elevation {sun_elevation:g}° does not satisfy the nighttime gate"
 
-            if category == "sea_ice" and latitude is not None:
-                metadata_used["Target latitude"] = f"{latitude:g}°"
+            if category == "sea_ice":
+                if latitude is not None:
+                    metadata_used["Target latitude"] = f"{latitude:g}°"
                 method = "Visual similarity constrained by target latitude and NASA solar-elevation metadata."
-                if abs(latitude) < args.sea_ice_min_latitude:
+                if args.reject_sea_ice:
+                    metadata_used["Batch QA result"] = "Current sea-ice candidate set rejected"
+                    method = (
+                        "Candidate removed by batch-level human QA after the relative-rank model confused "
+                        "clouds and sunglint with ice."
+                    )
+                    reject_reason = (
+                        "batch-level review found the current sea-ice retrieval unreliable; the visual model "
+                        "must pass an absolute, independently calibrated ice gate before this label is restored"
+                    )
+                elif latitude is not None and abs(latitude) < args.sea_ice_min_latitude:
                     reject_reason = (
                         f"target latitude {latitude:g}° is below the ±{args.sea_ice_min_latitude:g}° sea-ice eligibility gate"
                     )

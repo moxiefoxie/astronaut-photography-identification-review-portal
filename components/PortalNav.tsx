@@ -45,6 +45,8 @@ export function PortalNav({ currentRunId, userEmail }: { currentRunId?: string; 
     router.replace("/");
   }
 
+  const reviewRunId = currentRunId ?? runs[0]?.id;
+
   return (
     <nav className="portal-nav" aria-label="Review portal">
       <Link className="portal-brand" href="/">
@@ -65,6 +67,14 @@ export function PortalNav({ currentRunId, userEmail }: { currentRunId?: string; 
             ))}
           </select>
         </label>
+        {reviewRunId && (
+          <Link
+            className={`portal-link ${pathname.startsWith("/review/") ? "active" : ""}`}
+            href={`/review/${reviewRunId}`}
+          >
+            Review photos
+          </Link>
+        )}
         <Link className={`portal-link ${pathname === "/catalog" ? "active" : ""}`} href="/catalog">AI catalog</Link>
         <Link className={`portal-link ${pathname === "/gallery" ? "active" : ""}`} href="/gallery">My tags</Link>
         <Link className={`portal-link ${pathname === "/runs" ? "active" : ""}`} href="/runs">All runs</Link>
