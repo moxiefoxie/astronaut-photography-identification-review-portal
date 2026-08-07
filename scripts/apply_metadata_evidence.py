@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+from collections import Counter
 from pathlib import Path
 
 
@@ -37,11 +38,55 @@ def metadata_json(values: dict[str, str]) -> str:
     return json.dumps(values, separators=(",", ":"))
 
 
+def capture_month(row: dict[str, str]) -> int | None:
+    value = "".join(character for character in row.get("date", "") if character.isdigit())
+    if len(value) < 6:
+        return None
+    try:
+        month = int(value[4:6])
+        return month if 1 <= month <= 12 else None
+    except ValueError:
+        return None
+
+
+def sea_ice_region(latitude: float, longitude: float) -> str | None:
+    """Return a conservative ocean sector where seasonal sea ice is plausible."""
+    if latitude <= -55:
+        return "Southern Ocean margin"
+    if latitude >= 60:
+        return "high northern latitude"
+    if 45 <= latitude < 60 and -100 <= longitude <= -45:
+        return "Hudson/James Bay or Labrador–Gulf of St. Lawrence sector"
+    if 45 <= latitude < 60 and (135 <= longitude <= 180 or -180 <= longitude <= -130):
+        return "Sea of Okhotsk, Bering, or Gulf of Alaska sector"
+    if 54 <= latitude < 60 and 8 <= longitude <= 32:
+        return "Baltic sector"
+    return None
+
+
+def sea_ice_season(latitude: float, month: int | None) -> bool:
+    if month is None or abs(latitude) >= 65:
+        return True
+    if latitude >= 0:
+        return month in {11, 12, 1, 2, 3, 4, 5, 6}
+    return month in {5, 6, 7, 8, 9, 10, 11}
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("input_csv", type=Path)
     parser.add_argument("output_csv", type=Path)
     parser.add_argument("--sea-ice-min-latitude", type=float, default=45.0)
+    parser.add_argument(
+        "--sea-ice-require-ocean-center",
+        action="store_true",
+        help="Require the machine-geolocated photo center to fall over water for automated sea-ice labels.",
+    )
+    parser.add_argument(
+        "--sea-ice-seasonal-region-gate",
+        action="store_true",
+        help="Restrict automated sea ice to conservative seasonal ocean sectors.",
+    )
     parser.add_argument(
         "--reject-sea-ice",
         action="store_true",
@@ -53,7 +98,18 @@ def main() -> int:
     parser.add_argument("--night-max-sun-elevation", type=float, default=-6.0)
     parser.add_argument("--add-sunglint", action="store_true")
     parser.add_argument("--sunglint-max-mismatch", type=float, default=10.0)
+    parser.add_argument("--report", type=Path, help="Optional JSON summary of gates and final tag counts.")
     args = parser.parse_args()
+
+    land_globe = None
+    if args.sea_ice_require_ocean_center:
+        try:
+            from global_land_mask import globe as land_globe
+        except ImportError as error:
+            parser.error(
+                "--sea-ice-require-ocean-center requires global-land-mask "
+                "(install with: pip install global-land-mask)"
+            )
 
     with args.input_csv.open(newline="", encoding="utf-8-sig") as handle:
         reader = csv.DictReader(handle)
@@ -96,6 +152,10 @@ def main() -> int:
             if category == "sea_ice":
                 if latitude is not None:
                     metadata_used["Target latitude"] = f"{latitude:g}°"
+                longitude = number(row, "longitude")
+                month = capture_month(row)
+                if longitude is not None:
+                    metadata_used["Target longitude"] = f"{longitude:g}°"
                 method = "Visual similarity constrained by target latitude and NASA solar-elevation metadata."
                 if args.reject_sea_ice:
                     metadata_used["Batch QA result"] = "Current sea-ice candidate set rejected"
@@ -111,6 +171,52 @@ def main() -> int:
                     reject_reason = (
                         f"target latitude {latitude:g}° is below the ±{args.sea_ice_min_latitude:g}° sea-ice eligibility gate"
                     )
+                elif (
+                    land_globe is not None
+                    and latitude is not None
+                    and longitude is not None
+                    and bool(land_globe.is_land(latitude, longitude))
+                ):
+                    metadata_used["Ocean-center gate"] = "Rejected: target center falls on land"
+                    method = (
+                        "Visual similarity constrained by target latitude, NASA solar-elevation metadata, "
+                        "and a conservative global land/ocean mask."
+                    )
+                    reject_reason = (
+                        "the machine-geolocated photo center falls on land, so snow, glaciers, frozen rivers, "
+                        "and cities cannot be automatically labeled as ocean sea ice"
+                    )
+                elif land_globe is not None and latitude is not None and longitude is not None:
+                    metadata_used["Ocean-center gate"] = "Passed: target center falls over water"
+                    method = (
+                        "Visual similarity constrained by target latitude, NASA solar-elevation metadata, "
+                        "and a conservative global land/ocean mask."
+                    )
+                if (
+                    not reject_reason
+                    and args.sea_ice_seasonal_region_gate
+                    and latitude is not None
+                    and longitude is not None
+                ):
+                    region = sea_ice_region(latitude, longitude)
+                    metadata_used["Seasonal sea-ice region"] = region or "Outside conservative sectors"
+                    if month is not None:
+                        metadata_used["Capture month"] = str(month)
+                    if region is None:
+                        reject_reason = (
+                            "the target is outside the conservative ocean sectors used for automated "
+                            "seasonal sea-ice retrieval"
+                        )
+                    elif not sea_ice_season(latitude, month):
+                        reject_reason = (
+                            f"capture month {month} falls outside the conservative sea-ice season for this hemisphere"
+                        )
+                    else:
+                        metadata_used["Seasonal-region gate"] = "Passed"
+                        method = (
+                            "Visual similarity constrained by latitude, solar elevation, an ocean-center mask, "
+                            "and conservative regional/seasonal sea-ice plausibility."
+                        )
 
             if category == "algal_bloom_candidate":
                 competing = max(score(row, "sediment_plume"), score(row, "river_discharge"))
@@ -188,10 +294,36 @@ def main() -> int:
         writer.writeheader()
         writer.writerows(output)
 
+    category_counts = Counter(
+        category
+        for row in output
+        for category in row.get("categories", "").split(";")
+        if category
+    )
+    if args.report:
+        args.report.write_text(json.dumps({
+            "input": str(args.input_csv),
+            "output": str(args.output_csv),
+            "images": len(output),
+            "removed_labels": removed_counts,
+            "added_sunglint_geometry_candidates": sunglint_count,
+            "no_confident_match": no_match_count,
+            "category_counts": dict(sorted(category_counts.items())),
+            "gates": {
+                "sea_ice_min_latitude": args.sea_ice_min_latitude,
+                "sea_ice_require_ocean_center": args.sea_ice_require_ocean_center,
+                "sea_ice_seasonal_region_gate": args.sea_ice_seasonal_region_gate,
+                "night_max_sun_elevation": args.night_max_sun_elevation,
+                "sunglint_max_mismatch": args.sunglint_max_mismatch if args.add_sunglint else None,
+            },
+        }, indent=2) + "\n", encoding="utf-8")
+
     print(f"Wrote {len(output)} metadata-audited images to {args.output_csv}")
     print(f"Removed labels: {json.dumps(removed_counts, sort_keys=True)}")
     print(f"Added sunglint geometry candidates: {sunglint_count}")
     print(f"No confident match after gating: {no_match_count}")
+    if args.report:
+        print(f"Wrote metadata audit report to {args.report}")
     return 0
 
 
