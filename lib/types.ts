@@ -10,6 +10,8 @@ export interface Tag {
 export interface Prediction {
   score: number;
   source: string;
+  model_version?: string | null;
+  evidence?: Record<string, unknown>;
   tag: Tag;
 }
 

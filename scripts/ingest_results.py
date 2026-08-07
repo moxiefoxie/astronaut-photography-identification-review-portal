@@ -59,6 +59,10 @@ def normalized_slug(value: str) -> str:
 
 
 def category_score(category: str, row: dict[str, str]) -> float:
+    for key in (f"{category}_score", f"{category}_confidence", category):
+        value = as_float(row.get(key))
+        if value is not None:
+            return max(0.0, min(1.0, value / 100.0 if value > 1 else value))
     evidence = row.get("evidence", "")
     match = re.search(rf"(?:^|[; ]){re.escape(category)}=([0-9.]+)", evidence)
     if match:
@@ -69,6 +73,21 @@ def category_score(category: str, row: dict[str, str]) -> float:
     return max(0.0, min(1.0, score / 100.0 if score > 1 else score))
 
 
+def category_reason(category: str, row: dict[str, str]) -> str:
+    for key in (
+        f"{category}_reason",
+        f"{category}_reasoning",
+        f"{category}_evidence",
+        "reason",
+        "brief_reasoning",
+        "evidence",
+    ):
+        value = (row.get(key) or "").strip()
+        if value:
+            return value
+    return "No explanatory evidence was supplied by this classifier run."
+
+
 def row_to_image(row: dict[str, str]) -> dict[str, Any]:
     image_id = row["image_id"].strip()
     parts = image_id.split("-", 2)
@@ -76,27 +95,43 @@ def row_to_image(row: dict[str, str]) -> dict[str, Any]:
     roll = row.get("roll") or (parts[1] if len(parts) > 1 else None)
     frame = row.get("frame") or (parts[2] if len(parts) > 2 else None)
     categories = [normalized_slug(value) for value in row.get("categories", "").split(";") if normalized_slug(value)]
-    source = row.get("sources") or "pipeline"
-    known = {"image_id", "score", "categories", "date", "latitude", "longitude", "mission", "roll", "frame"}
+    source = row.get("model_source") or row.get("source") or row.get("sources") or "automated_visual_classifier"
+    if source.isdigit():
+        source = "automated_visual_classifier"
+    known = {
+        "image_id", "image_url", "thumbnail_url", "score", "categories", "date",
+        "latitude", "longitude", "mission", "roll", "frame",
+    }
     metadata = {key: value for key, value in row.items() if key not in known and value not in (None, "")}
+    scores = {category: category_score(category, row) for category in categories}
+    target_scores = {category: score for category, score in scores.items() if category != "no_confident_match"}
+    raw_ranking_score = as_float(row.get("score"))
+    fallback_ranking_score = (
+        max(0.0, min(1.0, raw_ranking_score / 100.0 if raw_ranking_score > 1 else raw_ranking_score))
+        if raw_ranking_score is not None else None
+    )
     return {
         "id": image_id,
-        "image_url": f"https://eol.jsc.nasa.gov/DatabaseImages/ESC/large/{mission}/{image_id}.JPG",
-        "thumbnail_url": f"https://eol.jsc.nasa.gov/DatabaseImages/ESC/small/{mission}/{image_id}.JPG",
+        "image_url": row.get("image_url") or f"https://eol.jsc.nasa.gov/DatabaseImages/ESC/large/{mission}/{image_id}.JPG",
+        "thumbnail_url": row.get("thumbnail_url") or f"https://eol.jsc.nasa.gov/DatabaseImages/ESC/small/{mission}/{image_id}.JPG",
         "captured_at": captured_at(row.get("date")),
         "latitude": as_float(row.get("latitude")),
         "longitude": as_float(row.get("longitude")),
         "mission": mission,
         "roll": roll,
         "frame": frame,
-        "ranking_score": category_score(categories[0], row) if categories else as_float(row.get("score")),
+        "ranking_score": max(target_scores.values()) if target_scores else fallback_ranking_score,
         "metadata": metadata,
         "predictions": [
             {
                 "tag": category,
-                "score": category_score(category, row),
+                "score": scores[category],
                 "source": source,
-                "evidence": {"summary": row.get("evidence", "")},
+                "model_version": row.get("model_version") or None,
+                "evidence": {
+                    "reason": category_reason(category, row),
+                    "summary": row.get("evidence", ""),
+                },
             }
             for category in categories
             if category != "production_unlabeled"

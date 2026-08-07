@@ -14,7 +14,7 @@ import { SwipeReview } from "./SwipeReview";
 
 type ViewMode = "swipe" | "grid";
 const PAGE_SIZE = 150;
-const IMAGE_SELECT = "*, image:images(*), predictions(score, source, tag:tags(id, slug, label, color)), reviews(decision)";
+const IMAGE_SELECT = "*, image:images(*), predictions(score, source, model_version, evidence, tag:tags(id, slug, label, color)), reviews(decision)";
 
 export function ReviewWorkspace() {
   const params = useParams<{ runId: string }>();
@@ -38,7 +38,9 @@ function normalizeImage(row: Record<string, unknown>): ReviewImage {
     metadata: (sourceImage?.metadata ?? row.metadata ?? {}) as Record<string, unknown>,
     predictions: rawPredictions.map((prediction) => ({
       score: Number(prediction.score),
-      source: String(prediction.source),
+      source: /^\d+$/.test(String(prediction.source)) ? "automated visual classifier" : String(prediction.source),
+      model_version: prediction.model_version as string | null,
+      evidence: (prediction.evidence ?? {}) as Record<string, unknown>,
       tag: prediction.tag as Tag,
     })),
     team_reviews: teamReviews,

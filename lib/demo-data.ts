@@ -32,7 +32,21 @@ export const demoImages: ReviewImage[] = [
   latitude: null,
   longitude: null,
   metadata: { mission, frame, demo: true },
-  predictions: [{ score: 0.92 - index * 0.04, source: "demo", tag: tag as Tag }],
+  predictions: [{
+    score: 0.92 - index * 0.04,
+    source: "automated visual classifier",
+    model_version: "demo-1",
+    evidence: {
+      reason: index === 0
+        ? "Tan water forms a broad plume that spreads into darker coastal water."
+        : index === 1
+          ? "Green-blue surface color forms a coherent offshore pattern rather than a cloud shadow."
+          : index === 2
+            ? "A pale suspended-material feature follows the coast and mixes into clearer water."
+            : "The frame is dark and contains concentrated light patterns near the ocean surface.",
+    },
+    tag: tag as Tag,
+  }],
   team_reviews: { accept: 0, reject: 0, uncertain: 0, skip: 0 },
 }));
 

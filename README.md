@@ -6,6 +6,8 @@ A collaborative review workspace for NASA astronaut photography. It is designed 
 
 - Passwordless team sign-in with Supabase Auth
 - Shared Postgres records with row-level security
+- A paginated AI Catalog with model ranking scores, evidence, and live predictions
+- Filtered JSON catalog exports containing NASA full-resolution and thumbnail links
 - Grid and one-photo-at-a-time review modes
 - Phone-friendly swipe right to accept and swipe left to reject
 - Keyboard shortcuts: right/left accept or reject, up uncertain, down skip

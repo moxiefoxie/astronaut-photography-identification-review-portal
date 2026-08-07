@@ -65,6 +65,7 @@ export function PortalNav({ currentRunId, userEmail }: { currentRunId?: string; 
             ))}
           </select>
         </label>
+        <Link className={`portal-link ${pathname === "/catalog" ? "active" : ""}`} href="/catalog">AI catalog</Link>
         <Link className={`portal-link ${pathname === "/gallery" ? "active" : ""}`} href="/gallery">My tags</Link>
         <Link className={`portal-link ${pathname === "/runs" ? "active" : ""}`} href="/runs">All runs</Link>
         {userEmail && <button className="portal-signout" title={`Signed in as ${userEmail}`} onClick={signOut}>Sign out</button>}
