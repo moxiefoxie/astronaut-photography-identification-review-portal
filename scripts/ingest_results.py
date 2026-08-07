@@ -80,6 +80,7 @@ def category_reason(category: str, row: dict[str, str]) -> str:
         f"{category}_evidence",
         "reason",
         "brief_reasoning",
+        "label_evidence",
         "evidence",
     ):
         value = (row.get(key) or "").strip()

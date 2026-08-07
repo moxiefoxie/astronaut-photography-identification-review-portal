@@ -18,7 +18,11 @@ DAYLIGHT_TAGS = {
     "sea_ice",
     "coastal_process",
     "floating_material",
+    "shoreline_sediment_transport",
+    "tidal_mixing_fronts",
 }
+
+NIGHT_TAGS = {"night_dynamic", "night_fishing_boats", "bioluminescence"}
 
 
 def number(row: dict[str, str], key: str) -> float | None:
@@ -143,7 +147,7 @@ def main() -> int:
                 method = "Visual similarity constrained by NASA solar-elevation metadata."
                 if sun_elevation <= args.night_max_sun_elevation:
                     reject_reason = f"solar elevation {sun_elevation:g}° indicates a dark frame"
-            elif category == "night_dynamic" and sun_elevation is not None:
+            elif category in NIGHT_TAGS and sun_elevation is not None:
                 metadata_used["Sun elevation"] = f"{sun_elevation:g}°"
                 method = "Dark-image similarity constrained by NASA solar-elevation metadata."
                 if sun_elevation > args.night_max_sun_elevation:
