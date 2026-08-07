@@ -251,7 +251,7 @@ function Workspace({ runId, user }: { runId: string; user: User | null }) {
   const progress = Math.min(100, Math.round((run.processed_count / (run.expected_count || run.processed_count || 1)) * 100));
 
   return (
-    <main className="review-page">
+    <main className={`review-page ${mode === "swipe" ? "swipe-mode" : "grid-mode"}`}>
       <PortalNav currentRunId={run.id} userEmail={user?.email ?? null} />
       <header className="review-header">
         <div className="review-heading"><div><div className="eyebrow">{run.status} · {progress}% processed</div><h1>{run.name}</h1></div></div>

@@ -128,7 +128,7 @@ function GalleryContent({ user }: { user: User | null }) {
     <main className="gallery-page">
       <PortalNav userEmail={user?.email ?? null} />
       <header className="gallery-header">
-        <div><div className="eyebrow">YOUR CURATED SET</div><h1>Tagged photo gallery</h1><p>Preview selections and download reviewer-enriched metadata with links to every full-resolution NASA photograph.</p></div>
+        <div><div className="eyebrow">SAVED TO YOUR REVIEWER ACCOUNT</div><h1>Your tagged photo gallery</h1><p>These are the tagged reviews saved by your signed-in account across every run and device. Preview selections or download reviewer-enriched metadata with links to every full-resolution NASA photograph.</p></div>
         <div className="gallery-export-actions">
           <TextDownloadLink disabled={!filtered.length} filename="ocean-review-metadata.csv" mimeType="text/csv" content={metadataCsv}>Download metadata CSV</TextDownloadLink>
           <TextDownloadLink disabled={!filtered.length} filename="ocean-review-selections.json" mimeType="application/json" content={metadataJson}>Download selections JSON</TextDownloadLink>
