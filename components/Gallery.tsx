@@ -128,13 +128,13 @@ function GalleryContent({ user }: { user: User | null }) {
     <main className="gallery-page">
       <PortalNav userEmail={user?.email ?? null} />
       <header className="gallery-header">
-        <div><div className="eyebrow">SAVED TO YOUR REVIEWER ACCOUNT</div><h1>Your tagged photo gallery</h1><p>These are the tagged reviews saved by your signed-in account across every run and device. Preview selections or download reviewer-enriched metadata with links to every full-resolution NASA photograph.</p></div>
+        <div><div className="eyebrow">YOUR TAGGED REVIEWS</div><h1>My tags</h1><p>Every tagged review saved by your signed-in account across all runs and devices. Preview your selections or download enriched metadata with links to every full-resolution NASA photograph.</p></div>
         <div className="gallery-export-actions">
-          <TextDownloadLink disabled={!filtered.length} filename="ocean-review-metadata.csv" mimeType="text/csv" content={metadataCsv}>Download metadata CSV</TextDownloadLink>
-          <TextDownloadLink disabled={!filtered.length} filename="ocean-review-selections.json" mimeType="application/json" content={metadataJson}>Download selections JSON</TextDownloadLink>
+          <TextDownloadLink disabled={!filtered.length} filename="my-tags-metadata.csv" mimeType="text/csv" content={metadataCsv}>Download metadata CSV</TextDownloadLink>
+          <TextDownloadLink disabled={!filtered.length} filename="my-tags.json" mimeType="application/json" content={metadataJson}>Download selections JSON</TextDownloadLink>
         </div>
       </header>
-      <section className="gallery-summary" aria-label="Gallery totals">
+      <section className="gallery-summary" aria-label="My tags totals">
         <strong>{items.filter((item) => item.decision === "accept").length}<span>accepted</span></strong>
         <strong>{items.filter((item) => item.decision === "uncertain").length}<span>uncertain</span></strong>
         <strong>{items.length}<span>tagged</span></strong>
@@ -148,12 +148,12 @@ function GalleryContent({ user }: { user: User | null }) {
           <option value="">All runs</option>{runs.map((run) => <option key={run.id} value={run.id}>{run.name}</option>)}
         </select>
       </section>
-      {loading ? <div className="gallery-loading"><div className="spinner" />Loading your selections…</div> : loadError ? <p className="error">Could not load gallery: {loadError}</p> : filtered.length ? (
+      {loading ? <div className="gallery-loading"><div className="spinner" />Loading your tags…</div> : loadError ? <p className="error">Could not load your tags: {loadError}</p> : filtered.length ? (
         <section className="gallery-grid">
           {filtered.map((item) => <GalleryCard key={item.reviewId} item={item} />)}
         </section>
       ) : (
-        <section className="gallery-empty"><h2>No matching selections yet</h2><p>Tag a photo and record a decision in a review run, then it will appear here.</p></section>
+        <section className="gallery-empty"><h2>No matching tagged reviews yet</h2><p>Tag a photo and record a decision in a review run, then it will appear here.</p></section>
       )}
     </main>
   );
