@@ -1,5 +1,5 @@
-import { Dashboard } from "@/components/Dashboard";
+import { LatestRunRedirect } from "@/components/LatestRunRedirect";
 
 export default function HomePage() {
-  return <Dashboard />;
+  return <LatestRunRedirect />;
 }

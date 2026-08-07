@@ -6,6 +6,7 @@ import type { Run } from "@/lib/types";
 import { demoRun } from "@/lib/demo-data";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { AuthGate } from "./AuthGate";
+import { PortalNav } from "./PortalNav";
 
 export function Dashboard() {
   return <AuthGate>{(user) => <DashboardContent userEmail={user?.email ?? null} />}</AuthGate>;
@@ -36,12 +37,11 @@ function DashboardContent({ userEmail }: { userEmail: string | null }) {
 
   return (
     <main className="dashboard-shell">
+      <PortalNav userEmail={userEmail} />
       <header className="topbar">
         <div><div className="eyebrow">NASA OCEAN REVIEW</div><h1>Review runs</h1></div>
         <div className="topbar-actions">
           {!getSupabaseBrowserClient() && <span className="demo-pill">Local demo</span>}
-          {userEmail && <span className="muted">{userEmail}</span>}
-          {userEmail && <button onClick={() => getSupabaseBrowserClient()?.auth.signOut()}>Sign out</button>}
         </div>
       </header>
       <section className="dashboard-intro">

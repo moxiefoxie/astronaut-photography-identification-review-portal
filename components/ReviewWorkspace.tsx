@@ -9,6 +9,7 @@ import { demoImages, demoRun, demoTags } from "@/lib/demo-data";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { AuthGate } from "./AuthGate";
 import { ImageCard } from "./ImageCard";
+import { PortalNav } from "./PortalNav";
 import { SwipeReview } from "./SwipeReview";
 
 type ViewMode = "swipe" | "grid";
@@ -251,8 +252,9 @@ function Workspace({ runId, user }: { runId: string; user: User | null }) {
 
   return (
     <main className="review-page">
+      <PortalNav currentRunId={run.id} userEmail={user?.email ?? null} />
       <header className="review-header">
-        <div className="review-heading"><Link href="/" className="back-link">← Runs</Link><div><div className="eyebrow">{run.status} · {progress}% processed</div><h1>{run.name}</h1></div></div>
+        <div className="review-heading"><div><div className="eyebrow">{run.status} · {progress}% processed</div><h1>{run.name}</h1></div></div>
         <div className="review-header-actions"><span>{images.length} loaded · {run.inserted_count} available</span><div className="segmented"><button className={mode === "swipe" ? "active" : ""} onClick={() => setMode("swipe")}>One at a time</button><button className={mode === "grid" ? "active" : ""} onClick={() => setMode("grid")}>Grid</button></div></div>
       </header>
       <div className="live-progress"><i style={{ width: `${progress}%` }} /><span className={`live-dot ${run.status}`} />{run.status === "running" ? "Live—new results will appear automatically" : "Run complete"}</div>
