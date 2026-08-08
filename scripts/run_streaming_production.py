@@ -65,6 +65,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--minimum-score", type=float, default=0.58)
     parser.add_argument("--max-tags-per-image", type=int, default=3)
     parser.add_argument("--categories", nargs="+", default=list(DEFAULT_CATEGORIES))
+    parser.add_argument(
+        "--bioluminescence-shortlist",
+        type=Path,
+        help="Maintain a separate top-candidate CSV without publishing a confirmed bioluminescence tag.",
+    )
     parser.add_argument("--keep-batches", action="store_true")
     args = parser.parse_args()
     if not args.app_url or not args.api_key:
@@ -131,6 +136,38 @@ def rows_for_ids(path: Path, image_ids: set[str]) -> list[dict[str, str]]:
         return []
     _, rows = read_csv(path)
     return [row for row in rows if row.get("image_id") in image_ids]
+
+
+def update_bioluminescence_shortlist(path: Path, new_rows: list[dict[str, str]], limit: int = 200) -> None:
+    fields = [
+        "image_id", "image_url", "thumbnail_url", "date", "latitude", "longitude",
+        "bioluminescence_candidate_score", "bioluminescence_candidate_margin",
+        "bioluminescence_candidate_reason",
+    ]
+    existing: list[dict[str, str]] = []
+    if path.exists() and path.stat().st_size:
+        _, existing = read_csv(path)
+    candidates: dict[str, dict[str, str]] = {
+        row["image_id"]: row for row in existing if row.get("image_id")
+    }
+    for row in new_rows:
+        try:
+            score = float(row.get("bioluminescence_candidate_score", "0"))
+        except ValueError:
+            score = 0.0
+        if score >= 0.95 and row.get("image_id"):
+            candidate = {field: row.get(field, "") for field in fields}
+            previous = candidates.get(row["image_id"])
+            if previous is None or float(candidate["bioluminescence_candidate_margin"] or "-999") > float(
+                previous.get("bioluminescence_candidate_margin", "-999") or "-999"
+            ):
+                candidates[row["image_id"]] = candidate
+    ranked = sorted(
+        candidates.values(),
+        key=lambda row: float(row.get("bioluminescence_candidate_margin", "-999") or "-999"),
+        reverse=True,
+    )[:limit]
+    write_csv(path, fields, ranked)
 
 
 def command(parts: list[object]) -> None:
@@ -275,6 +312,8 @@ def main() -> int:
             audited = process_batch(args, pool_fields, pending, start // args.batch_size + 1)
             rows = append_csv(audited, args.output)
             completed_ids.update(row["image_id"] for row in rows)
+            if args.bioluminescence_shortlist:
+                update_bioluminescence_shortlist(args.bioluminescence_shortlist, rows)
         # Re-publishing the whole completed slice is deliberate: portal
         # upserts are idempotent and this recovers cleanly if a prior process
         # stopped after appending the CSV but before its network request.
