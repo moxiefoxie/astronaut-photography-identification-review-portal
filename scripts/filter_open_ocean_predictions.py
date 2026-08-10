@@ -46,6 +46,23 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--bearing-count", type=int, default=36)
     parser.add_argument("--batch-size", type=int, default=400)
     parser.add_argument("--limit", type=int)
+    parser.add_argument(
+        "--derive-sunglint-geometry",
+        action="store_true",
+        help="Create sunglint geometry candidates directly from specular_mismatch_min_deg before filtering.",
+    )
+    parser.add_argument("--sunglint-max-mismatch", type=float, default=10.0)
+    parser.add_argument(
+        "--shoreline-shapefile",
+        type=Path,
+        help="Optional full-resolution GSHHG L1 shapefile used to reject any land polygon inside the photo footprint.",
+    )
+    parser.add_argument(
+        "--minimum-detailed-shoreline-km",
+        type=float,
+        default=0.0,
+        help="When GSHHG is supplied, require the complete footprint to remain this far from its nearest shoreline.",
+    )
     parser.add_argument("--categories", nargs="+", default=list(DEFAULT_CATEGORIES))
     args = parser.parse_args()
     if args.minimum_offshore_km <= 0:
@@ -56,6 +73,12 @@ def parse_args() -> argparse.Namespace:
         parser.error("--bearing-count must be at least 8")
     if args.batch_size < 1:
         parser.error("--batch-size must be positive")
+    if args.minimum_detailed_shoreline_km < 0:
+        parser.error("--minimum-detailed-shoreline-km cannot be negative")
+    if args.minimum_detailed_shoreline_km and not args.shoreline_shapefile:
+        parser.error("--minimum-detailed-shoreline-km requires --shoreline-shapefile")
+    if args.sunglint_max_mismatch <= 0:
+        parser.error("--sunglint-max-mismatch must be positive")
     return args
 
 
@@ -166,9 +189,157 @@ def score(row: dict[str, str], categories: list[str]) -> float:
     return max(values, default=0.0)
 
 
+def footprint_variants(points: list[tuple[float, float]]):
+    """Return dateline-safe Shapely polygons for the four image corners."""
+    from shapely.affinity import translate
+    from shapely.geometry import Polygon
+
+    center_lon = points[0][1]
+    corners = [points[index] for index in (1, 2, 4, 3)]  # UL, UR, LR, LL
+    unwrapped = [
+        (center_lon + ((longitude - center_lon + 180.0) % 360.0 - 180.0), latitude)
+        for latitude, longitude in corners
+    ]
+    polygon = Polygon(unwrapped)
+    if not polygon.is_valid:
+        polygon = polygon.buffer(0)
+    variants = []
+    for offset in (-360.0, 0.0, 360.0):
+        candidate = translate(polygon, xoff=offset)
+        minimum_x, _, maximum_x, _ = candidate.bounds
+        if maximum_x >= -180.0 and minimum_x <= 180.0:
+            variants.append(candidate)
+    return variants
+
+
+def reject_shoreline_intersections(
+    candidates: list[tuple[dict[str, str], list[tuple[float, float]], list[str]]],
+    shapefile_path: Path,
+    minimum_distance_km: float = 0.0,
+) -> set[int]:
+    """Find photos intersecting or too near full-resolution land."""
+    try:
+        import shapefile
+        from shapely.geometry import shape as shapely_shape
+        from shapely.ops import nearest_points
+    except ImportError as error:
+        raise RuntimeError(
+            "--shoreline-shapefile requires the shapely and pyshp packages"
+        ) from error
+
+    variant_rows: list[tuple[int, object, float]] = []
+    cells: dict[tuple[int, int], list[int]] = {}
+    for candidate_index, (_, points, _) in enumerate(candidates):
+        center_latitude = points[0][0]
+        latitude_expansion = minimum_distance_km / 111.0
+        longitude_expansion = minimum_distance_km / max(
+            1.0, 111.0 * abs(math.cos(math.radians(center_latitude)))
+        )
+        for polygon in footprint_variants(points):
+            variant_index = len(variant_rows)
+            variant_rows.append((candidate_index, polygon, center_latitude))
+            minimum_x, minimum_y, maximum_x, maximum_y = polygon.bounds
+            minimum_x -= longitude_expansion
+            maximum_x += longitude_expansion
+            minimum_y -= latitude_expansion
+            maximum_y += latitude_expansion
+            for cell_lon in range(math.floor(minimum_x), math.floor(maximum_x) + 1):
+                for cell_lat in range(math.floor(minimum_y), math.floor(maximum_y) + 1):
+                    cells.setdefault((cell_lon, cell_lat), []).append(variant_index)
+
+    rejected: set[int] = set()
+    reader = shapefile.Reader(str(shapefile_path))
+    cell_keys = tuple(cells)
+    for shoreline in reader.iterShapes():
+        if not shoreline.points or not shoreline.bbox:
+            continue
+        minimum_x, minimum_y, maximum_x, maximum_y = shoreline.bbox
+        width = max(0, math.floor(maximum_x) - math.floor(minimum_x) + 1)
+        height = max(0, math.floor(maximum_y) - math.floor(minimum_y) + 1)
+        variant_ids: set[int] = set()
+        if width * height <= len(cell_keys):
+            for cell_lon in range(math.floor(minimum_x), math.floor(maximum_x) + 1):
+                for cell_lat in range(math.floor(minimum_y), math.floor(maximum_y) + 1):
+                    variant_ids.update(cells.get((cell_lon, cell_lat), ()))
+        else:
+            for cell in cell_keys:
+                if minimum_x <= cell[0] + 1 and maximum_x >= cell[0] and minimum_y <= cell[1] + 1 and maximum_y >= cell[1]:
+                    variant_ids.update(cells[cell])
+        if not variant_ids:
+            continue
+        land = shapely_shape(shoreline.__geo_interface__)
+        for variant_index in variant_ids:
+            candidate_index, footprint, _ = variant_rows[variant_index]
+            if candidate_index in rejected:
+                continue
+            if footprint.intersects(land):
+                rejected.add(candidate_index)
+                continue
+            if minimum_distance_km:
+                footprint_point, land_point = nearest_points(footprint, land)
+                distance = haversine_km(
+                    footprint_point.y,
+                    footprint_point.x,
+                    land_point.y,
+                    land_point.x,
+                )
+                if distance < minimum_distance_km:
+                    rejected.add(candidate_index)
+    return rejected
+
+
+def haversine_km(first_lat: float, first_lon: float, second_lat: float, second_lon: float) -> float:
+    first_latitude, second_latitude = math.radians(first_lat), math.radians(second_lat)
+    delta_latitude = second_latitude - first_latitude
+    delta_longitude = math.radians((second_lon - first_lon + 180.0) % 360.0 - 180.0)
+    value = (
+        math.sin(delta_latitude / 2.0) ** 2
+        + math.cos(first_latitude) * math.cos(second_latitude) * math.sin(delta_longitude / 2.0) ** 2
+    )
+    return 2.0 * EARTH_RADIUS_KM * math.asin(min(1.0, math.sqrt(value)))
+
+
 def main() -> int:
     args = parse_args()
     fields, rows = read_predictions(args.predictions)
+    input_count = len(rows)
+    if args.derive_sunglint_geometry:
+        derived_rows = []
+        for row in rows:
+            try:
+                mismatch = float(row.get("specular_mismatch_min_deg", ""))
+            except ValueError:
+                continue
+            if mismatch > args.sunglint_max_mismatch:
+                continue
+            geometry_score = 0.6 + 0.4 * max(
+                0.0, 1.0 - mismatch / args.sunglint_max_mismatch
+            )
+            result = dict(row)
+            current = [value for value in result.get("categories", "").split(";") if value]
+            if "sunglint_geometry_candidate" not in current:
+                current.append("sunglint_geometry_candidate")
+            result["categories"] = ";".join(current)
+            result["sunglint_geometry_candidate_score"] = f"{geometry_score:.6f}"
+            result["sunglint_geometry_candidate_source"] = "solar_specular_geometry"
+            result["sunglint_geometry_candidate_model_version"] = "specular-half-vector-v1"
+            result["sunglint_geometry_candidate_method"] = "solar_specular_geometry"
+            result["sunglint_geometry_candidate_reason"] = (
+                f"The minimum Sun/view specular mismatch across the geolocated image footprint is {mismatch:.1f}°, "
+                f"within the configured {args.sunglint_max_mismatch:g}° candidate threshold. Geometry supports "
+                "possible sunglint, but visible reflection still requires review."
+            )
+            derived_rows.append(result)
+        rows = derived_rows
+        for field in (
+            "sunglint_geometry_candidate_score",
+            "sunglint_geometry_candidate_source",
+            "sunglint_geometry_candidate_model_version",
+            "sunglint_geometry_candidate_method",
+            "sunglint_geometry_candidate_reason",
+        ):
+            if field not in fields:
+                fields.append(field)
     wanted = {row["image_id"] for row in rows}
     years = [int(row["year"]) for row in rows if row.get("year")]
     footprints = load_footprints(args.metadata_root, wanted, years)
@@ -191,7 +362,7 @@ def main() -> int:
             continue
         candidates.append((row, points, retained))
 
-    selected: list[dict[str, str]] = []
+    offshore_candidates: list[tuple[dict[str, str], list[tuple[float, float]], list[str]]] = []
     for start in range(0, len(candidates), args.batch_size):
         batch = candidates[start:start + args.batch_size]
         passes = offshore_batch(
@@ -203,24 +374,58 @@ def main() -> int:
         for (row, points, retained), passed in zip(batch, passes):
             if not passed:
                 continue
-            result = dict(row)
-            result["categories"] = ";".join(retained)
-            result["score"] = f"{score(result, retained):.6f}"
-            result["open_ocean_offshore_lower_bound_km"] = f"{args.minimum_offshore_km:g}"
-            result["open_ocean_footprint_points_checked"] = str(len(points))
-            result["open_ocean_method"] = "strict_geospatial_offshore_footprint_gate"
-            result["open_ocean_metadata_used"] = json.dumps({
-                "Offshore distance": f"No mapped land sampled within {args.minimum_offshore_km:g} km",
-                "Image footprint": "Machine-geolocated center and all four corners are over ocean",
-                "Land mask": "global-land-mask",
-                "Sampling": f"{args.radial_step_km:g} km radial steps at {args.bearing_count} bearings",
-            })
-            summary = (
-                f"Open-ocean gate passed: the geolocated image center and all four footprint corners are over "
-                f"ocean, with no mapped land sampled within {args.minimum_offshore_km:g} km of any footprint point."
-            )
-            result["evidence"] = "; ".join(value for value in (summary, result.get("evidence", "")) if value)
-            selected.append(result)
+            offshore_candidates.append((row, points, retained))
+
+    shoreline_rejected: set[int] = set()
+    if args.shoreline_shapefile:
+        if not args.shoreline_shapefile.exists():
+            raise ValueError(f"Shoreline shapefile does not exist: {args.shoreline_shapefile}")
+        shoreline_rejected = reject_shoreline_intersections(
+            offshore_candidates,
+            args.shoreline_shapefile,
+            args.minimum_detailed_shoreline_km,
+        )
+
+    selected: list[dict[str, str]] = []
+    for candidate_index, (row, points, retained) in enumerate(offshore_candidates):
+        if candidate_index in shoreline_rejected:
+            continue
+        result = dict(row)
+        result["categories"] = ";".join(retained)
+        result["score"] = f"{score(result, retained):.6f}"
+        result["open_ocean_offshore_lower_bound_km"] = f"{args.minimum_offshore_km:g}"
+        result["open_ocean_footprint_points_checked"] = str(len(points))
+        result["open_ocean_method"] = "strict_geospatial_offshore_footprint_gate"
+        if args.shoreline_shapefile:
+            result["open_ocean_shoreline_dataset"] = "GSHHG 2.3.7 full-resolution L1"
+        result["open_ocean_metadata_used"] = json.dumps({
+            "Offshore distance": f"No mapped land sampled within {args.minimum_offshore_km:g} km",
+            "Image footprint": "Machine-geolocated center and all four corners are over ocean",
+            "Land mask": "global-land-mask",
+            "Sampling": f"{args.radial_step_km:g} km radial steps at {args.bearing_count} bearings",
+            **({
+                "Detailed shoreline": (
+                    f"Complete four-corner image footprint is at least {args.minimum_detailed_shoreline_km:g} km from "
+                    "GSHHG 2.3.7 full-resolution land"
+                    if args.minimum_detailed_shoreline_km
+                    else "No GSHHG 2.3.7 full-resolution land polygon intersects the complete four-corner image footprint"
+                ),
+            } if args.shoreline_shapefile else {}),
+        })
+        summary = (
+            f"Open-ocean gate passed: the geolocated image center and all four footprint corners are over "
+            f"ocean, with no coarse-mask land sampled within {args.minimum_offshore_km:g} km of any footprint point."
+        )
+        if args.shoreline_shapefile:
+            if args.minimum_detailed_shoreline_km:
+                summary += (
+                    f" The complete footprint is at least {args.minimum_detailed_shoreline_km:g} km from "
+                    "the nearest GSHHG full-resolution shoreline."
+                )
+            else:
+                summary += " No GSHHG full-resolution land polygon intersects the complete image footprint."
+        result["evidence"] = "; ".join(value for value in (summary, result.get("evidence", "")) if value)
+        selected.append(result)
 
     selected.sort(
         key=lambda row: (
@@ -236,6 +441,7 @@ def main() -> int:
         "open_ocean_offshore_lower_bound_km",
         "open_ocean_footprint_points_checked",
         "open_ocean_method",
+        "open_ocean_shoreline_dataset",
         "open_ocean_metadata_used",
     ]
     output_fields = fields + [field for field in extra_fields if field not in fields]
@@ -251,9 +457,13 @@ def main() -> int:
         for category in row["categories"].split(";")
         if category
     )
-    print(f"Read {len(rows)} classified images")
+    print(f"Read {input_count} input images")
+    if args.derive_sunglint_geometry:
+        print(f"Derived {len(rows)} sunglint geometry candidates at <= {args.sunglint_max_mismatch:g}° mismatch")
     print(f"Loaded {len(footprints)} complete five-point footprints; missing {missing_footprint}")
     print(f"Rejected {no_offshore_feature} images with no retained offshore feature tag")
+    if args.shoreline_shapefile:
+        print(f"Rejected {len(shoreline_rejected)} images intersecting full-resolution GSHHG land")
     print(f"Selected {len(selected)} images at least {args.minimum_offshore_km:g} km from mapped land")
     print("Retained tags: " + json.dumps(dict(category_counts), sort_keys=True))
     print(f"Wrote {args.output}")
@@ -263,6 +473,6 @@ def main() -> int:
 if __name__ == "__main__":
     try:
         raise SystemExit(main())
-    except (OSError, ValueError, json.JSONDecodeError) as error:
+    except (OSError, RuntimeError, ValueError, json.JSONDecodeError) as error:
         print(f"Error: {error}")
         raise SystemExit(1)

@@ -104,6 +104,12 @@ def row_to_image(row: dict[str, str]) -> dict[str, Any]:
     mission = row.get("mission") or parts[0]
     roll = row.get("roll") or (parts[1] if len(parts) > 1 else None)
     frame = row.get("frame") or (parts[2] if len(parts) > 2 else None)
+    if mission.startswith("ISS"):
+        default_image_url = f"https://eol.jsc.nasa.gov/DatabaseImages/ESC/large/{mission}/{image_id}.JPG"
+        default_thumbnail_url = f"https://eol.jsc.nasa.gov/DatabaseImages/ESC/small/{mission}/{image_id}.JPG"
+    else:
+        default_image_url = f"https://eol.jsc.nasa.gov/DatabaseImages/ISD/highres/{mission}/{image_id}.JPG"
+        default_thumbnail_url = f"https://eol.jsc.nasa.gov/DatabaseImages/ISD/lowres/{mission}/{image_id}.JPG"
     categories = [normalized_slug(value) for value in row.get("categories", "").split(";") if normalized_slug(value)]
     default_source = row.get("model_source") or row.get("source") or row.get("sources") or "automated_visual_classifier"
     if default_source.isdigit():
@@ -122,8 +128,8 @@ def row_to_image(row: dict[str, str]) -> dict[str, Any]:
     )
     return {
         "id": image_id,
-        "image_url": row.get("image_url") or f"https://eol.jsc.nasa.gov/DatabaseImages/ESC/large/{mission}/{image_id}.JPG",
-        "thumbnail_url": row.get("thumbnail_url") or f"https://eol.jsc.nasa.gov/DatabaseImages/ESC/small/{mission}/{image_id}.JPG",
+        "image_url": row.get("image_url") or default_image_url,
+        "thumbnail_url": row.get("thumbnail_url") or default_thumbnail_url,
         "captured_at": captured_at(row.get("date")),
         "latitude": as_float(row.get("latitude")),
         "longitude": as_float(row.get("longitude")),
