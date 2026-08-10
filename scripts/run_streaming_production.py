@@ -34,6 +34,7 @@ DEFAULT_CATEGORIES = (
     "night_fishing_boats",
     "shoreline_sediment_transport",
     "tidal_mixing_fronts",
+    "open_ocean_sunglint",
 )
 
 
@@ -62,9 +63,20 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--batch-size", type=int, default=500)
     parser.add_argument("--download-workers", type=int, default=8)
     parser.add_argument("--model-batch-size", type=int, default=24)
+    parser.add_argument(
+        "--review-embedding-cache",
+        type=Path,
+        help="Optional classifier cache dedicated to this run's reviewed reference set.",
+    )
     parser.add_argument("--minimum-score", type=float, default=0.58)
     parser.add_argument("--max-tags-per-image", type=int, default=3)
     parser.add_argument("--categories", nargs="+", default=list(DEFAULT_CATEGORIES))
+    parser.add_argument(
+        "--publish-only-categories",
+        nargs="+",
+        default=[],
+        help="After classification and metadata gates, publish only rows containing one of these categories.",
+    )
     parser.add_argument(
         "--bioluminescence-shortlist",
         type=Path,
@@ -138,6 +150,17 @@ def rows_for_ids(path: Path, image_ids: set[str]) -> list[dict[str, str]]:
     return [row for row in rows if row.get("image_id") in image_ids]
 
 
+def retain_categories(path: Path, categories: set[str]) -> int:
+    """Rewrite a batch CSV to contain only requested, positively matched tags."""
+    fields, rows = read_csv(path)
+    retained = [
+        row for row in rows
+        if categories.intersection(value for value in row.get("categories", "").split(";") if value)
+    ]
+    write_csv(path, fields, retained)
+    return len(retained)
+
+
 def update_bioluminescence_shortlist(path: Path, new_rows: list[dict[str, str]], limit: int = 200) -> None:
     fields = [
         "image_id", "image_url", "thumbnail_url", "date", "latitude", "longitude",
@@ -194,6 +217,7 @@ def publish(ingest: Any, args: argparse.Namespace, run_id: str, rows: list[dict[
                     "thumbnail_retention": "deleted after classification",
                     "score_interpretation": "batch-relative visual ranking, not calibrated probability",
                     "categories": args.categories,
+                    "publish_only_categories": args.publish_only_categories,
                 },
             },
             "images": batch,
@@ -270,6 +294,8 @@ def process_batch(args: argparse.Namespace, fields: list[str], rows: list[dict[s
         "--max-tags-per-image", args.max_tags_per_image,
         "--categories", *args.categories,
     ]
+    if args.review_embedding_cache:
+        classifier.extend(["--review-embedding-cache", args.review_embedding_cache])
     if args.supplemental_decisions:
         classifier.extend(["--supplemental-decisions", *args.supplemental_decisions])
     if args.supplemental_images:
@@ -284,6 +310,13 @@ def process_batch(args: argparse.Namespace, fields: list[str], rows: list[dict[s
         "--add-sunglint",
         "--report", audit_report_path,
     ])
+    if args.publish_only_categories:
+        retained = retain_categories(audited_path, set(args.publish_only_categories))
+        print(
+            f"Retained {retained}/{len(rows)} images matching publish-only categories: "
+            + ", ".join(args.publish_only_categories),
+            flush=True,
+        )
     return audited_path
 
 

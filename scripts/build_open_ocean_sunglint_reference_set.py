@@ -61,6 +61,17 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--metadata-root", type=Path, default=Path("."))
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--decisions", type=Path, help="optional CLIP training-decision JSON output")
+    parser.add_argument(
+        "--hard-negative-candidates",
+        type=Path,
+        help="CSV of visually similar island/reef candidates to label as rejected open-ocean examples",
+    )
+    parser.add_argument(
+        "--hard-negative-exclude",
+        type=Path,
+        help="CSV whose image IDs should not be used as hard negatives",
+    )
     parser.add_argument("--limit", type=int, default=60)
     parser.add_argument(
         "--verified-only",
@@ -165,6 +176,33 @@ def main() -> int:
     print(f"Selected {len(selected)} explicit NASA caption references")
     print("Tags: " + json.dumps(counts, sort_keys=True))
     print(f"Wrote {args.output}")
+    if args.decisions:
+        decisions = [
+            {"image_id": row["image_id"], "decision": "accept", "categories": "open_ocean_sunglint"}
+            for row in selected
+        ]
+        excluded: set[str] = set()
+        if args.hard_negative_exclude:
+            with args.hard_negative_exclude.open(newline="", encoding="utf-8-sig") as handle:
+                excluded = {
+                    row["image_id"] for row in csv.DictReader(handle) if row.get("image_id")
+                }
+        if args.hard_negative_candidates:
+            with args.hard_negative_candidates.open(newline="", encoding="utf-8-sig") as handle:
+                for row in csv.DictReader(handle):
+                    candidate_id = row.get("image_id", "")
+                    if candidate_id and candidate_id not in excluded:
+                        decisions.append({
+                            "image_id": candidate_id,
+                            "decision": "reject",
+                            "categories": "open_ocean_sunglint",
+                        })
+        args.decisions.parent.mkdir(parents=True, exist_ok=True)
+        args.decisions.write_text(json.dumps(decisions, indent=2) + "\n", encoding="utf-8")
+        accepted = sum(row["decision"] == "accept" for row in decisions)
+        rejected = sum(row["decision"] == "reject" for row in decisions)
+        print(f"Training decisions: {accepted} accepted, {rejected} rejected")
+        print(f"Wrote {args.decisions}")
     return 0
 
 

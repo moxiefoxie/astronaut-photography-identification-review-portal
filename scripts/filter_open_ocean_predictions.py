@@ -47,6 +47,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--batch-size", type=int, default=400)
     parser.add_argument("--limit", type=int)
     parser.add_argument(
+        "--center-only",
+        action="store_true",
+        help="Gate only the geolocated image center; useful for preselecting a visual-classifier pool.",
+    )
+    parser.add_argument(
         "--derive-sunglint-geometry",
         action="store_true",
         help="Create sunglint geometry candidates directly from specular_mismatch_min_deg before filtering.",
@@ -190,9 +195,13 @@ def score(row: dict[str, str], categories: list[str]) -> float:
 
 
 def footprint_variants(points: list[tuple[float, float]]):
-    """Return dateline-safe Shapely polygons for the four image corners."""
+    """Return dateline-safe Shapely geometries for a center or footprint."""
     from shapely.affinity import translate
-    from shapely.geometry import Polygon
+    from shapely.geometry import Point, Polygon
+
+    if len(points) == 1:
+        latitude, longitude = points[0]
+        return [Point(longitude, latitude)]
 
     center_lon = points[0][1]
     corners = [points[index] for index in (1, 2, 4, 3)]  # UL, UR, LR, LL
@@ -342,7 +351,17 @@ def main() -> int:
                 fields.append(field)
     wanted = {row["image_id"] for row in rows}
     years = [int(row["year"]) for row in rows if row.get("year")]
-    footprints = load_footprints(args.metadata_root, wanted, years)
+    if args.center_only:
+        footprints = {}
+        for row in rows:
+            try:
+                latitude = max(-90.0, min(90.0, float(row["latitude"])))
+                longitude = (float(row["longitude"]) + 180.0) % 360.0 - 180.0
+            except (KeyError, TypeError, ValueError):
+                continue
+            footprints[row["image_id"]] = [(latitude, longitude)]
+    else:
+        footprints = load_footprints(args.metadata_root, wanted, years)
     target_categories = set(args.categories)
     candidates: list[tuple[dict[str, str], list[tuple[float, float]], list[str]]] = []
     missing_footprint = 0
@@ -395,35 +414,56 @@ def main() -> int:
         result["score"] = f"{score(result, retained):.6f}"
         result["open_ocean_offshore_lower_bound_km"] = f"{args.minimum_offshore_km:g}"
         result["open_ocean_footprint_points_checked"] = str(len(points))
-        result["open_ocean_method"] = "strict_geospatial_offshore_footprint_gate"
+        result["open_ocean_method"] = (
+            "geospatial_offshore_center_candidate_gate"
+            if args.center_only
+            else "strict_geospatial_offshore_footprint_gate"
+        )
         if args.shoreline_shapefile:
             result["open_ocean_shoreline_dataset"] = "GSHHG 2.3.7 full-resolution L1"
         result["open_ocean_metadata_used"] = json.dumps({
             "Offshore distance": f"No mapped land sampled within {args.minimum_offshore_km:g} km",
-            "Image footprint": "Machine-geolocated center and all four corners are over ocean",
+            "Image footprint": (
+                "Machine-geolocated center is over ocean; the image itself still requires visual land rejection"
+                if args.center_only
+                else "Machine-geolocated center and all four corners are over ocean"
+            ),
             "Land mask": "global-land-mask",
             "Sampling": f"{args.radial_step_km:g} km radial steps at {args.bearing_count} bearings",
             **({
                 "Detailed shoreline": (
-                    f"Complete four-corner image footprint is at least {args.minimum_detailed_shoreline_km:g} km from "
+                    f"{'Image center' if args.center_only else 'Complete four-corner image footprint'} is at least {args.minimum_detailed_shoreline_km:g} km from "
                     "GSHHG 2.3.7 full-resolution land"
                     if args.minimum_detailed_shoreline_km
-                    else "No GSHHG 2.3.7 full-resolution land polygon intersects the complete four-corner image footprint"
+                    else (
+                        "The image center does not intersect GSHHG 2.3.7 full-resolution land"
+                        if args.center_only
+                        else "No GSHHG 2.3.7 full-resolution land polygon intersects the complete four-corner image footprint"
+                    )
                 ),
             } if args.shoreline_shapefile else {}),
         })
         summary = (
-            f"Open-ocean gate passed: the geolocated image center and all four footprint corners are over "
-            f"ocean, with no coarse-mask land sampled within {args.minimum_offshore_km:g} km of any footprint point."
+            f"Open-ocean candidate gate passed: the geolocated image center is over ocean, with no coarse-mask "
+            f"land sampled within {args.minimum_offshore_km:g} km of the center. Visual land rejection is still required."
+            if args.center_only
+            else (
+                f"Open-ocean gate passed: the geolocated image center and all four footprint corners are over "
+                f"ocean, with no coarse-mask land sampled within {args.minimum_offshore_km:g} km of any footprint point."
+            )
         )
         if args.shoreline_shapefile:
             if args.minimum_detailed_shoreline_km:
                 summary += (
-                    f" The complete footprint is at least {args.minimum_detailed_shoreline_km:g} km from "
+                    f" The {'image center' if args.center_only else 'complete footprint'} is at least {args.minimum_detailed_shoreline_km:g} km from "
                     "the nearest GSHHG full-resolution shoreline."
                 )
             else:
-                summary += " No GSHHG full-resolution land polygon intersects the complete image footprint."
+                summary += (
+                    " The image center does not intersect GSHHG full-resolution land."
+                    if args.center_only
+                    else " No GSHHG full-resolution land polygon intersects the complete image footprint."
+                )
         result["evidence"] = "; ".join(value for value in (summary, result.get("evidence", "")) if value)
         selected.append(result)
 
@@ -460,7 +500,8 @@ def main() -> int:
     print(f"Read {input_count} input images")
     if args.derive_sunglint_geometry:
         print(f"Derived {len(rows)} sunglint geometry candidates at <= {args.sunglint_max_mismatch:g}° mismatch")
-    print(f"Loaded {len(footprints)} complete five-point footprints; missing {missing_footprint}")
+    geometry_label = "geolocated centers" if args.center_only else "complete five-point footprints"
+    print(f"Loaded {len(footprints)} {geometry_label}; missing {missing_footprint}")
     print(f"Rejected {no_offshore_feature} images with no retained offshore feature tag")
     if args.shoreline_shapefile:
         print(f"Rejected {len(shoreline_rejected)} images intersecting full-resolution GSHHG land")
